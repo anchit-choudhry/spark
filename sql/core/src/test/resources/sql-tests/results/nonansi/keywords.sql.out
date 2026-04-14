@@ -35,7 +35,6 @@ BUCKETS	false
 BY	false
 BYTE	false
 CACHE	false
-CACHED	false
 CALL	false
 CALLED	false
 CASCADE	false
@@ -55,6 +54,7 @@ CLUSTERED	false
 CODEGEN	false
 COLLATE	false
 COLLATION	false
+COLLATIONS	false
 COLLECTION	false
 COLUMN	false
 COLUMNS	false
