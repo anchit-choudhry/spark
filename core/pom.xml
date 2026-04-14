@@ -40,6 +40,11 @@
       <artifactId>scala-parallel-collections_${scala.binary.version}</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.scala-lang</groupId>
+      <artifactId>scala-compiler</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.apache.avro</groupId>
       <artifactId>avro</artifactId>
     </dependency>
@@ -255,8 +260,8 @@
       <artifactId>zstd-jni</artifactId>
     </dependency>
     <dependency>
-      <groupId>com.github.RoaringBitmap.RoaringBitmap</groupId>
-      <artifactId>roaringbitmap</artifactId>
+      <groupId>org.roaringbitmap</groupId>
+      <artifactId>RoaringBitmap</artifactId>
     </dependency>
     <dependency>
       <groupId>org.scala-lang.modules</groupId>
