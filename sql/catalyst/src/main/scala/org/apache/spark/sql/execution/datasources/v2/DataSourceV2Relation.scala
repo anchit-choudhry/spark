@@ -22,20 +22,21 @@ import java.util.{Optional, OptionalLong}
 import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.analysis.{MultiInstanceRelation, NamedRelation, TimeTravelSpec}
 import org.apache.spark.sql.catalyst.catalog.{CatalogColumnStat, CatalogStatistics}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeMap, AttributeReference, Expression, SortOrder}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeMap, AttributeReference, AttributeSet, Expression, SortOrder, V2ExpressionUtils}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.{ColumnStat, ExposesMetadataColumns, Histogram, HistogramBin, LeafNode, LogicalPlan, Statistics}
 import org.apache.spark.sql.catalyst.streaming.{StreamingSourceIdentifyingName, Unassigned}
 import org.apache.spark.sql.catalyst.types.DataTypeUtils.toAttributes
-import org.apache.spark.sql.catalyst.util.{truncatedString, CharVarcharUtils}
+import org.apache.spark.sql.catalyst.util.{removeInternalMetadata, truncatedString, CharVarcharUtils}
 import org.apache.spark.sql.connector.catalog.{CatalogPlugin, FunctionCatalog, Identifier, SupportsMetadataColumns, Table, TableCapability, TableCatalog, V2TableUtil}
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.CatalogHelper
 import org.apache.spark.sql.connector.expressions.{FieldReference, NamedReference}
-import org.apache.spark.sql.connector.read.{Scan, Statistics => V2Statistics, SupportsReportStatistics}
+import org.apache.spark.sql.connector.read.{Scan, Statistics => V2Statistics, SupportsReportStatistics, SupportsRuntimeV2Filtering}
 import org.apache.spark.sql.connector.read.colstats.{ColumnStatistics, Histogram => V2Histogram, HistogramBin => V2HistogramBin}
 import org.apache.spark.sql.connector.read.streaming.{Offset, SparkDataStream}
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
+import org.apache.spark.util.ArrayImplicits._
 import org.apache.spark.util.Utils
 
 /**
@@ -173,6 +174,18 @@ case class DataSourceV2ScanRelation(
   // This changes which filters InferFiltersFromConstraints adds or removes (e.g., it may
   // skip adding IsNotNull when the scan already implies it, or infer new filters across
   // joins), so plan stability testing is needed first.
+
+  /**
+   * Resolved attributes that the scan declares for runtime filtering via
+   * [[SupportsRuntimeV2Filtering.filterAttributes]]. Empty when the scan
+   * does not implement [[SupportsRuntimeV2Filtering]] or exposes no attributes.
+   */
+  lazy val runtimeFilterAttrs: AttributeSet = scan match {
+    case s: SupportsRuntimeV2Filtering =>
+      AttributeSet(V2ExpressionUtils.resolveRefs[Attribute](
+        s.filterAttributes.toImmutableArraySeq, this))
+    case _ => AttributeSet.empty
+  }
 
   override def name: String = relation.name
 
@@ -316,7 +329,13 @@ object DataSourceV2Relation {
     import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
     // The v2 source may return schema containing char/varchar type. We replace char/varchar
     // with "annotated" string type here as the query engine doesn't support char/varchar yet.
-    val schema = CharVarcharUtils.replaceCharVarcharWithStringInSchema(table.columns.asSchema)
+    // We also strip internal metadata that may have leaked onto the table columns, so it does
+    // not surface on the relation's output. Column IDs (FIELD_ID_METADATA_KEY) are an exception:
+    // although the key is listed in INTERNAL_METADATA_KEYS so that other paths drop it, the
+    // column-ID feature deliberately surfaces field IDs on the relation's output, so we keep them.
+    val schema = removeInternalMetadata(
+      CharVarcharUtils.replaceCharVarcharWithStringInSchema(table.columns.asSchema),
+      keepFieldIds = true)
     DataSourceV2Relation(table, toAttributes(schema), catalog, identifier, options, timeTravelSpec)
   }
 

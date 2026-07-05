@@ -393,7 +393,7 @@ class DataFrameReader(OptionUtils):
 
     def xml(
         self,
-        path: PathOrPaths,
+        path: Union[PathOrPaths, "DataFrame"],
         rowTag: Optional[str] = None,
         schema: Optional[Union[StructType, str]] = None,
         excludeAttribute: Optional[Union[bool, str]] = None,
@@ -437,7 +437,32 @@ class DataFrameReader(OptionUtils):
         )
         if isinstance(path, str):
             path = [path]
-        return self.load(path=path, format="xml", schema=schema)
+        if isinstance(path, list):
+            return self.load(path=path, format="xml", schema=schema)
+
+        from pyspark.sql.connect.dataframe import DataFrame
+
+        if isinstance(path, DataFrame):
+            # Schema must be set explicitly here because the DataFrame path
+            # bypasses load(), which normally calls self.schema(schema).
+            if schema is not None:
+                self.schema(schema)
+            return self._df(
+                Parse(
+                    child=path._plan,
+                    format=proto.Parse.ParseFormat.PARSE_FORMAT_XML,
+                    schema=self._schema,
+                    options=self._options,
+                )
+            )
+        raise PySparkTypeError(
+            errorClass="NOT_EXPECTED_TYPE",
+            messageParameters={
+                "arg_name": "path",
+                "expected_type": "str, list, or DataFrame",
+                "arg_type": type(path).__name__,
+            },
+        )
 
     xml.__doc__ = PySparkDataFrameReader.xml.__doc__
 
@@ -577,6 +602,8 @@ class DataFrameWriter(OptionUtils):
     format.__doc__ = PySparkDataFrameWriter.format.__doc__
 
     def option(self, key: str, value: "OptionalPrimitiveType") -> "DataFrameWriter":
+        if value is None:
+            return self
         self._write.options[key] = to_str(value)
         return self
 
@@ -584,7 +611,7 @@ class DataFrameWriter(OptionUtils):
 
     def options(self, **options: "OptionalPrimitiveType") -> "DataFrameWriter":
         for k in options:
-            self._write.options[k] = to_str(options[k])
+            self.option(k, options[k])
         return self
 
     options.__doc__ = PySparkDataFrameWriter.options.__doc__
@@ -953,6 +980,8 @@ class DataFrameWriterV2(OptionUtils):
     using.__doc__ = PySparkDataFrameWriterV2.using.__doc__
 
     def option(self, key: str, value: "OptionalPrimitiveType") -> "DataFrameWriterV2":
+        if value is None:
+            return self
         self._write.options[key] = to_str(value)
         return self
 
@@ -960,7 +989,7 @@ class DataFrameWriterV2(OptionUtils):
 
     def options(self, **options: "OptionalPrimitiveType") -> "DataFrameWriterV2":
         for k in options:
-            self._write.options[k] = to_str(options[k])
+            self.option(k, options[k])
         return self
 
     options.__doc__ = PySparkDataFrameWriterV2.options.__doc__
